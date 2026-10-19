@@ -1,0 +1,56 @@
+plugins {
+    id 'fabric-loom' version '1.15.5' apply false
+}
+
+// Shared logic for every version subproject. Per-version values (mc, fabric_api, java_version, shim)
+// come from versions/<mc>/gradle.properties. All versions compile the same src/main + one shims/<shim> overlay.
+defaultTasks 'build'
+
+subprojects {
+    apply plugin: 'fabric-loom'
+
+    def common = rootProject.projectDir
+    base.archivesName = "nihao-fabric"
+    version = "${mod_version}+${mc}"
+
+    // Mini preprocessor: merge src/main/java + shims/<shim>/java, then apply the version's literal renames
+    // (property `remap`, "from>to;from>to") for names Mojang changed between versions.
+    def pairs = (findProperty('remap') ?: '').split(';').findAll { it }.collect { it.split('>') }
+    def prepare = tasks.register('prepareSources', Sync) {
+        from("$common/src/main/java")
+        from("$common/shims/${shim}/java")
+        into layout.buildDirectory.dir('src')
+        filter { String line -> pairs.inject(line) { l, p -> l.replace(p[0], p[1]) } }
+    }
+
+    sourceSets.main {
+        java.srcDirs = [prepare]
+        resources.srcDirs = ["$common/src/main/resources"]
+    }
+
+    dependencies {
+        minecraft "com.mojang:minecraft:${mc}"
+        mappings loom.officialMojangMappings()
+        modImplementation "net.fabricmc:fabric-loader:${loader_version}"
+        modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_api}"
+    }
+
+    tasks.withType(JavaCompile).configureEach {
+        options.release = java_version as int
+    }
+
+    processResources {
+        def props = [version: project.version, mc: mc, java_version: java_version]
+        inputs.properties(props)
+        filesMatching(['fabric.mod.json', 'nihao.mixins.json']) {
+            expand(props)
+        }
+    }
+
+    // Ready-to-publish jars: release/nihao-fabric-<mod>+<mc>.jar
+    def release = tasks.register('copyRelease', Copy) {
+        from(tasks.named('remapJar'))
+        into "$common/release"
+    }
+    tasks.named('build') { finalizedBy release }
+}

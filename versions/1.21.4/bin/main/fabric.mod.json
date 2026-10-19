@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "nihao",
+  "version": "${version}",
+  "name": "NiHao Client",
+  "description": "Ely.by skins and a screenshot browser.",
+  "icon": "icon.png",
+  "environment": "client",
+  "entrypoints": { "client": ["com.nihao.client.NiHaoClient"] },
+  "mixins": ["nihao.mixins.json"],
+  "depends": {
+    "fabricloader": ">=0.15.0",
+    "minecraft": "${mc}",
+    "java": ">=${java_version}",
+    "fabric-api": "*"
+  }
+}

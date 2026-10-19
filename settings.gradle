@@ -1,0 +1,15 @@
+pluginManagement {
+    repositories {
+        maven { url = 'https://maven.fabricmc.net/' }
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
+
+rootProject.name = 'NiHaoModClient'
+
+// One subproject per Minecraft version: versions/<mc>/gradle.properties. Add a version = add a folder.
+file('versions').eachDir { dir ->
+    include "fabric-${dir.name}"
+    project(":fabric-${dir.name}").projectDir = dir
+}

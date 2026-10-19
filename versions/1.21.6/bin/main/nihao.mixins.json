@@ -1,0 +1,7 @@
+{
+  "required": true,
+  "package": "com.nihao.client.mixin",
+  "compatibilityLevel": "JAVA_${java_version}",
+  "client": ["PlayerInfoMixin", "ChatComponentMixin"],
+  "injectors": { "defaultRequire": 1 }
+}
