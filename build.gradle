@@ -1,55 +1,120 @@
 plugins {
-    id 'fabric-loom' version '1.15.5' apply false
+    id 'fabric-loom' version '1.15.5' apply false // remapping Loom: obfuscated Minecraft (<= 1.21.11)
+    id 'net.fabricmc.fabric-loom' version '1.15.5' apply false // Minecraft 26.x ships unobfuscated: no mappings, no remap
+    id 'net.neoforged.moddev' version '2.0.148' apply false
 }
 
-// Shared logic for every version subproject. Per-version values (mc, fabric_api, java_version, shim)
-// come from versions/<mc>/gradle.properties. All versions compile the same src/main + one shims/<shim> overlay.
+// Shared logic for every version/loader subproject. Per-version values (mc, java_version, shim, remap, fabric_api, neoforge)
+// come from versions/<mc>/gradle.properties. All targets compile the same src/main + one shims/<shim> overlay + one loaders/<loader> overlay.
 defaultTasks 'build'
 
 subprojects {
-    apply plugin: 'fabric-loom'
-
     def common = rootProject.projectDir
-    base.archivesName = "nihao-fabric"
+    def loader = name.split('-')[0]
+    def vp = new Properties()
+    new File(loader == 'neoforge' ? projectDir.parentFile : projectDir, 'gradle.properties').withInputStream { vp.load(it) }
+    def mc = vp.getProperty('mc')
+    def javaVersion = vp.getProperty('java_version')
+    def unobf = (mc.tokenize('.')[0] as int) >= 26
+
+    apply plugin: (loader == 'fabric' ? (unobf ? 'net.fabricmc.fabric-loom' : 'fabric-loom') : 'net.neoforged.moddev')
+
+    base.archivesName = "nihao-${loader}"
     version = "${mod_version}+${mc}"
 
-    // Mini preprocessor: merge src/main/java + shims/<shim>/java, then apply the version's literal renames
-    // (property `remap`, "from>to;from>to") for names Mojang changed between versions.
-    def pairs = (findProperty('remap') ?: '').split(';').findAll { it }.collect { it.split('>') }
+    // Mini preprocessor: one source tree, converted for every version. src/main/java + shims/<shim>/java + loaders/<loader>/java are merged, then
+    //  1. conditional blocks (balanced within a file):  //#if <expr> ... //#elif <expr> ... //#else ... //#endif
+    //     <expr> is Groovy over MC (1.20.4 = 12004, 1.21 = 12100, 1.21.11 = 12111, 26.3 = 260300), the constants V1_21_2, V1_21_9, V26_1, V26_2, V26_3 and the
+    //     version's feature flags (property `features=zoom` -> ZOOM), e.g. `//#if ZOOM && MC >= V26_2`. The directive lines and the inactive branches are dropped.
+    //  2. the literal renames of property `remap` ("from>to;from>to", no ';' inside) for names Mojang changed between versions.
+    def parts = mc.tokenize('.')*.toInteger()
+    def condVars = [MC: parts[0] * 10000 + parts[1] * 100 + (parts.size() > 2 ? parts[2] : 0), ZOOM: false,
+                    V1_21_2: 12102, // GameRenderer.getFov returns float instead of double
+                    V1_21_9: 12109, // KeyMapping.Category instead of the string category and its sort-order map
+                    V26_1: 260100,  // GuiGraphicsExtractor: render -> extractRenderState and friends
+                    V26_2: 260200,  // Hud split out of Gui, Minecraft.setScreen moved to Gui.setScreen
+                    V26_3: 260300]  // SDL instead of GLFW: no tinyfd, mouse buttons numbered 1/2/3
+    (vp.getProperty('features') ?: '').tokenize(',')*.trim().each { condVars[it.toUpperCase()] = true }
+    def cond = { String e -> new GroovyShell(new Binding(condVars)).evaluate(e) as boolean }
+    def pairs = (vp.getProperty('remap') ?: '').split(';').findAll { it }.collect { it.split('>') }
+    def blocks = [] // open //#if blocks: [parent active, a branch was taken, this branch active]
     def prepare = tasks.register('prepareSources', Sync) {
+        duplicatesStrategy = DuplicatesStrategy.INCLUDE // a shim file replaces the placeholder of the same name in src/main
+        inputs.property('conditions', condVars.toString()) // the filter below is not tracked by Gradle
+        inputs.property('remap', vp.getProperty('remap') ?: '')
         from("$common/src/main/java")
-        from("$common/shims/${shim}/java")
+        from("$common/shims/${vp.getProperty('shim')}/java")
+        from("$common/loaders/${loader}/java")
         into layout.buildDirectory.dir('src')
-        filter { String line -> pairs.inject(line) { l, p -> l.replace(p[0], p[1]) } }
+        eachFile { blocks.clear() } // an unbalanced //#if must not leak into the next file
+        filter { String line ->
+            String t = line.trim()
+            if (t.startsWith('//#if ')) {
+                boolean parent = blocks.empty || blocks.last()[2]
+                boolean on = parent && cond(t.substring(6))
+                blocks << [parent, on, on]
+                return null
+            }
+            if (t.startsWith('//#elif ')) {
+                def b = blocks.last()
+                b[2] = b[0] && !b[1] && cond(t.substring(8))
+                b[1] = b[1] || b[2]
+                return null
+            }
+            if (t == '//#else') {
+                def b = blocks.last()
+                b[2] = b[0] && !b[1]
+                b[1] = true
+                return null
+            }
+            if (t == '//#endif') {
+                blocks.remove(blocks.size() - 1)
+                return null
+            }
+            (blocks.empty || blocks.last()[2]) ? pairs.inject(line) { l, p -> l.replace(p[0], p[1]) } : null
+        }
     }
 
     sourceSets.main {
         java.srcDirs = [prepare]
-        resources.srcDirs = ["$common/src/main/resources"]
+        resources.srcDirs = ["$common/src/main/resources", "$common/loaders/${loader}/resources"]
     }
 
-    dependencies {
-        minecraft "com.mojang:minecraft:${mc}"
-        mappings loom.officialMojangMappings()
-        modImplementation "net.fabricmc:fabric-loader:${loader_version}"
-        modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_api}"
-    }
-
-    tasks.withType(JavaCompile).configureEach {
-        options.release = java_version as int
-    }
-
-    processResources {
-        def props = [version: project.version, mc: mc, java_version: java_version]
-        inputs.properties(props)
-        filesMatching(['fabric.mod.json', 'nihao.mixins.json']) {
-            expand(props)
+    if (loader == 'fabric') {
+        dependencies {
+            minecraft "com.mojang:minecraft:${mc}"
+            if (!unobf) mappings loom.officialMojangMappings()
+            add(unobf ? 'implementation' : 'modImplementation', "net.fabricmc:fabric-loader:${loader_version}")
+            add(unobf ? 'implementation' : 'modImplementation', "net.fabricmc.fabric-api:fabric-api:${vp.getProperty('fabric_api')}") // loads the mod's assets
+        }
+    } else {
+        neoForge {
+            version = vp.getProperty('neoforge')
+            mods { nihao { sourceSet sourceSets.main } }
+            runs { client { client(); systemProperty 'nihao.session', 'offline' } }
         }
     }
 
-    // Ready-to-publish jars: release/nihao-fabric-<mod>+<mc>.jar
+    java.toolchain.languageVersion = JavaLanguageVersion.of(javaVersion as int) // 26.x needs a JDK 25 (downloaded by the foojay resolver)
+
+    tasks.withType(JavaCompile).configureEach {
+        options.release = javaVersion as int
+    }
+
+    processResources {
+        def props = [version: project.version, mc: mc, java_version: javaVersion,
+                     neoforge_range: vp.getProperty('neoforge_range') ?: '[1,)',
+                     neoforge_required: 'type = "required"']
+        inputs.properties(props)
+        filesMatching(['fabric.mod.json', 'nihao.mixins.json', '**/neoforge.mods.toml']) {
+            expand(props)
+        }
+        if (mc == '1.20.4') rename 'neoforge.mods.toml', 'mods.toml' // renamed in 1.20.5
+    }
+
+    // Ready-to-publish jars: release/nihao-<loader>-<mod>+<mc>.jar
     def release = tasks.register('copyRelease', Copy) {
-        from(tasks.named('remapJar'))
+        from(tasks.named(loader == 'fabric' && !unobf ? 'remapJar' : 'jar'))
         into "$common/release"
     }
     tasks.named('build') { finalizedBy release }

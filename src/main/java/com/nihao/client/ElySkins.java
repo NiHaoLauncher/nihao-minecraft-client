@@ -30,7 +30,22 @@ public final class ElySkins {
     private ElySkins() {}
 
     public static PlayerSkin apply(PlayerInfo info, PlayerSkin original) {
-        String name = Compat.name(info);
+        return apply(Compat.name(info), original);
+    }
+
+    /** Whether the "show skins" setting asks for the Ely.by skin of this player (no lookup is made for the others). */
+    private static boolean shown(String name) {
+        boolean mine = name.equalsIgnoreCase(Minecraft.getInstance().getUser().getName());
+        return switch (NiHaoConfig.skins) {
+            case ALL -> true;
+            case OTHERS -> !mine;
+            case ME -> mine;
+            case OFF -> false;
+        };
+    }
+
+    public static PlayerSkin apply(String name, PlayerSkin original) {
+        if (!shown(name)) return original;
         Entry e = CACHE.get(name);
         if (e == null) {
             CACHE.put(name, new Entry(null));

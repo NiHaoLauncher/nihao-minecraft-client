@@ -3,10 +3,9 @@
   "id": "nihao",
   "version": "${version}",
   "name": "NiHao Client",
-  "description": "Ely.by skins and a screenshot browser.",
+  "description": "Ely.by skins, screenshot browser, account sign-in and self-update.",
   "icon": "icon.png",
   "environment": "client",
-  "entrypoints": { "client": ["com.nihao.client.NiHaoClient"] },
   "mixins": ["nihao.mixins.json"],
   "depends": {
     "fabricloader": ">=0.15.0",

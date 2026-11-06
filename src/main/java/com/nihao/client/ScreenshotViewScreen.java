@@ -2,7 +2,6 @@ package com.nihao.client;
 
 import com.mojang.blaze3d.platform.NativeImage;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -24,7 +23,7 @@ public class ScreenshotViewScreen extends MouseScreen {
     private double zoom = 1, offX, offY;
 
     public ScreenshotViewScreen(Screen parent, File[] files, int index) {
-        super(Component.literal("Screenshots"));
+        super(Component.translatable("nihao.screenshots.title"));
         this.parent = parent;
         this.files = files;
         this.index = index;
@@ -34,9 +33,9 @@ public class ScreenshotViewScreen extends MouseScreen {
     protected void init() {
         show();
         int y = height - 28;
-        addRenderableWidget(Button.builder(Component.literal("<"), b -> step(-1)).bounds(width / 2 - 110, y, 50, 20).build());
-        addRenderableWidget(Button.builder(Component.literal("Back"), b -> onClose()).bounds(width / 2 - 50, y, 100, 20).build());
-        addRenderableWidget(Button.builder(Component.literal(">"), b -> step(1)).bounds(width / 2 + 60, y, 50, 20).build());
+        addRenderableWidget(new FlatButton(width / 2 - 110, y, 50, 20, "<", () -> step(-1)));
+        addRenderableWidget(new FlatButton(width / 2 - 50, y, 100, 20, Lang.t("back"), this::onClose));
+        addRenderableWidget(new FlatButton(width / 2 + 60, y, 50, 20, ">", () -> step(1)));
     }
 
     private void step(int d) {
@@ -104,19 +103,19 @@ public class ScreenshotViewScreen extends MouseScreen {
 
     @Override
     boolean onClick(double x, double y, int button) {
-        return false;
+        return Ui.click(this, x, y, button);
     }
 
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partial) {
         super.render(g, mouseX, mouseY, partial);
         if (files.length == 0) {
-            g.drawCenteredString(font, "No screenshots found", width / 2, height / 2, 0xFFFFFF);
+            g.drawCenteredString(font, Lang.t("screenshots.empty"), width / 2, height / 2, 0xFFFFFFFF);
             return;
         }
         String title = files[index].getName() + "  (" + (index + 1) + "/" + files.length + ")";
         if (zoom > 1) title += "  x" + String.format("%.1f", zoom);
-        g.drawCenteredString(font, title, width / 2, 8, 0xFFFFFF);
+        g.drawCenteredString(font, title, width / 2, 8, 0xFFFFFFFF);
         if (!loaded) return;
         double s = fitScale() * zoom;
         int w = (int) Math.round(texW * s), h = (int) Math.round(texH * s);

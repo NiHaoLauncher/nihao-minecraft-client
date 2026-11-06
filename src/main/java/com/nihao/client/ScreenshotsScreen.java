@@ -3,15 +3,10 @@ package com.nihao.client;
 import com.mojang.blaze3d.platform.NativeImage;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractWidget;
-import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
-
-import org.lwjgl.PointerBuffer;
-import org.lwjgl.system.MemoryStack;
-import org.lwjgl.util.tinyfd.TinyFileDialogs;
 
 import javax.imageio.ImageIO;
 import java.awt.Image;
@@ -31,8 +26,9 @@ import java.util.concurrent.CompletableFuture;
 /** Grid of screenshot thumbnails (newest first), paged; click opens the viewer, right click the context menu. */
 public class ScreenshotsScreen extends MouseScreen {
     private static final int CELL_W = 120, CELL_H = 68, GAP = 8, THUMB_PX = 256;
-    private static final String[] ITEMS = {"Open", "Download", "Copy to clipboard", "Delete"};
-    private static final int MENU_W = 110, ITEM_H = 14;
+    private static final String[] ITEMS = {"open", "download", "copy", "favourite_add", "delete"}; // translation keys: screenshots.<item>
+    private static boolean onlyFavourites; // the "Favourites" folder: show only the starred screenshots
+    private static final int ITEM_H = 14;
 
     private static final class Thumb {
         final ResourceLocation id;
@@ -53,7 +49,7 @@ public class ScreenshotsScreen extends MouseScreen {
     private volatile long statusUntil;
 
     public ScreenshotsScreen(Screen parent) {
-        super(Component.literal("Screenshots"));
+        super(Component.translatable("nihao.screenshots.title"));
         this.parent = parent;
     }
 
@@ -62,6 +58,7 @@ public class ScreenshotsScreen extends MouseScreen {
         closeMenu();
         File[] list = new File(minecraft.gameDirectory, "screenshots").listFiles((d, n) -> n.toLowerCase().endsWith(".png"));
         files = list == null ? new File[0] : list;
+        if (onlyFavourites) files = Arrays.stream(files).filter(f -> Favourites.has("shot", f.getName())).toArray(File[]::new);
         Arrays.sort(files, Comparator.comparingLong(File::lastModified).reversed());
 
         cols = Math.max(1, (width - 20) / (CELL_W + GAP));
@@ -78,13 +75,20 @@ public class ScreenshotsScreen extends MouseScreen {
             int fileIndex = first + i;
             thumbs[i] = new Thumb(Compat.id("nihao", "thumb/" + i));
             load(thumbs[i], files[fileIndex], gen);
-            addRenderableWidget(new Cell(thumbs[i], cellX(i), cellY(i)));
+            addRenderableWidget(new Cell(thumbs[i], cellX(i), cellY(i), Favourites.has("shot", files[fileIndex].getName())));
         }
 
         int y = height - 28, pages = Math.max(1, (files.length + perPage - 1) / perPage);
-        addRenderableWidget(Button.builder(Component.literal("<"), b -> turn(-1, pages)).bounds(width / 2 - 110, y, 50, 20).build());
-        addRenderableWidget(Button.builder(Component.literal("Back"), b -> onClose()).bounds(width / 2 - 50, y, 100, 20).build());
-        addRenderableWidget(Button.builder(Component.literal(">"), b -> turn(1, pages)).bounds(width / 2 + 60, y, 50, 20).build());
+        addRenderableWidget(new FlatButton(width / 2 - 110, y, 50, 20, "<", () -> turn(-1, pages)));
+        addRenderableWidget(new FlatButton(width / 2 - 50, y, 100, 20, Lang.t("back"), this::onClose));
+        addRenderableWidget(new FlatButton(width / 2 + 60, y, 50, 20, ">", () -> turn(1, pages)));
+        FlatButton folder = new FlatButton(width / 2 + 120, y, 110, 20, Lang.t(onlyFavourites ? "screenshots.folder_favourites" : "screenshots.folder_all"), () -> {
+            onlyFavourites = !onlyFavourites;
+            page = 0;
+            rebuildWidgets();
+        });
+        folder.selected = onlyFavourites;
+        addRenderableWidget(folder);
     }
 
     private int cellX(int i) { return gridX + (i % cols) * (CELL_W + GAP); }
@@ -121,10 +125,12 @@ public class ScreenshotsScreen extends MouseScreen {
     /** Thumbnail: just the image and a hover outline (clicks are handled in onClick). Not a Button: 1.21.11 forces the button sprite. */
     private static final class Cell extends AbstractWidget {
         private final Thumb thumb;
+        private final boolean favourite;
 
-        Cell(Thumb thumb, int x, int y) {
+        Cell(Thumb thumb, int x, int y, boolean favourite) {
             super(x, y, CELL_W, CELL_H, Component.empty());
             this.thumb = thumb;
+            this.favourite = favourite;
         }
 
         @Override
@@ -137,6 +143,7 @@ public class ScreenshotsScreen extends MouseScreen {
                 int w = Math.round(thumb.w * k), h = Math.round(thumb.h * k);
                 Compat.blit(g, thumb.id, getX() + (getWidth() - w) / 2, getY() + (getHeight() - h) / 2, w, h, thumb.w, thumb.h);
             }
+            if (favourite) Favourites.drawStar(g, getX() + 3, getY() + 3);
             if (isHoveredOrFocused()) {
                 int x1 = getX(), y1 = getY(), x2 = x1 + getWidth(), y2 = y1 + getHeight(), c = 0xFFFFFFFF;
                 g.fill(x1 - 1, y1 - 1, x2 + 1, y1, c);
@@ -156,8 +163,15 @@ public class ScreenshotsScreen extends MouseScreen {
         return -1;
     }
 
+    /** Wide enough for the longest label in the current language. */
+    private int menuW() {
+        int w = 110;
+        for (String k : new String[]{"open", "download", "copy", "favourite_add", "favourite_remove", "delete", "delete_confirm"}) w = Math.max(w, font.width(Lang.t("screenshots." + k)) + 8);
+        return w;
+    }
+
     private int menuItemAt(double x, double y) {
-        if (x < menuX || x >= menuX + MENU_W || y < menuY) return -1;
+        if (x < menuX || x >= menuX + menuW() || y < menuY) return -1;
         int i = (int) (y - menuY) / ITEM_H;
         return i < ITEMS.length ? i : -1;
     }
@@ -169,9 +183,10 @@ public class ScreenshotsScreen extends MouseScreen {
 
     @Override
     boolean onClick(double x, double y, int button) {
+        if (menuCell < 0 && Ui.click(this, x, y, button)) return true;
         if (menuCell >= 0) {
             int item = menuItemAt(x, y);
-            if (item == 3 && !confirmDelete && button == 0) { // Delete needs a second click
+            if (item == 4 && !confirmDelete && button == 0) { // Delete needs a second click
                 confirmDelete = true;
                 return true;
             }
@@ -191,7 +206,7 @@ public class ScreenshotsScreen extends MouseScreen {
             int c = cellAt(x, y);
             if (c >= 0) {
                 menuCell = c;
-                menuX = (int) Math.min(x, width - MENU_W);
+                menuX = (int) Math.min(x, width - menuW());
                 menuY = (int) Math.min(y, height - ITEMS.length * ITEM_H);
                 return true;
             }
@@ -218,37 +233,37 @@ public class ScreenshotsScreen extends MouseScreen {
         switch (item) {
             case 0 -> open(fileIndex);
             case 1 -> CompletableFuture.runAsync(() -> { // native "Save as" dialog; blocks, so off the render thread
-                try (MemoryStack stack = MemoryStack.stackPush()) {
-                    PointerBuffer filter = stack.mallocPointer(1);
-                    filter.put(stack.UTF8("*.png")).flip();
-                    Path downloads = Path.of(System.getProperty("user.home"), "Downloads");
-                    Path start = (Files.isDirectory(downloads) ? downloads : Path.of(System.getProperty("user.home"))).resolve(f.getName());
-                    String dest = TinyFileDialogs.tinyfd_saveFileDialog("Save screenshot", start.toString(), filter, "PNG image");
+                try {
+                    String dest = SaveDialog.png(f.getName());
                     if (dest == null) return; // cancelled
                     if (!dest.toLowerCase().endsWith(".png")) dest += ".png";
                     Files.copy(f.toPath(), Path.of(dest), StandardCopyOption.REPLACE_EXISTING);
-                    say("Saved: " + dest);
+                    say(Lang.t("screenshots.saved", dest));
                 } catch (Throwable e) {
-                    say("Download failed: " + e.getMessage());
+                    say(Lang.t("screenshots.save_failed", e.getMessage()));
                 }
             });
             case 2 -> CompletableFuture.runAsync(() -> {
                 try {
                     BufferedImage img = ImageIO.read(f);
                     Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new ImageSelection(img), null);
-                    say("Copied to clipboard");
+                    say(Lang.t("screenshots.copied"));
                 } catch (Throwable t) { // headless AWT or no clipboard: fall back to the file path
                     minecraft.execute(() -> minecraft.keyboardHandler.setClipboard(f.getAbsolutePath()));
-                    say("Image clipboard unavailable, copied the path");
+                    say(Lang.t("screenshots.copied_path"));
                 }
             });
             case 3 -> {
+                say(Lang.t(Favourites.toggle("shot", f.getName()) ? "screenshots.favourite_added" : "screenshots.favourite_removed"));
+                rebuildWidgets();
+            }
+            case 4 -> {
                 try {
                     Files.deleteIfExists(f.toPath());
-                    say("Deleted " + f.getName());
+                    say(Lang.t("screenshots.deleted", f.getName()));
                     rebuildWidgets();
                 } catch (Exception e) {
-                    say("Delete failed: " + e.getMessage());
+                    say(Lang.t("screenshots.delete_failed", e.getMessage()));
                 }
             }
             default -> { }
@@ -271,20 +286,21 @@ public class ScreenshotsScreen extends MouseScreen {
         // widgets ignore hover while the menu is open
         super.render(g, menuCell >= 0 ? -1 : mouseX, menuCell >= 0 ? -1 : mouseY, partial);
         if (files.length == 0) {
-            g.drawCenteredString(font, "No screenshots found", width / 2, height / 2, 0xFFFFFF);
+            g.drawCenteredString(font, Lang.t(onlyFavourites ? "screenshots.empty_favourites" : "screenshots.empty"), width / 2, height / 2, 0xFFFFFFFF);
             return;
         }
         int pages = (files.length + perPage - 1) / perPage;
-        g.drawCenteredString(font, "Screenshots (" + files.length + ")  -  page " + (page + 1) + "/" + pages, width / 2, 8, 0xFFFFFF);
-        if (System.currentTimeMillis() < statusUntil) g.drawCenteredString(font, status, width / 2, height - 40, 0xFFFFAA);
+        g.drawCenteredString(font, Lang.t("screenshots.heading", files.length, page + 1, pages), width / 2, 8, 0xFFFFFFFF);
+        if (System.currentTimeMillis() < statusUntil) g.drawCenteredString(font, status, width / 2, height - 40, 0xFFFFFFAA);
         if (menuCell < 0) return;
-        g.fill(menuX - 1, menuY - 1, menuX + MENU_W + 1, menuY + ITEMS.length * ITEM_H + 1, 0xFF000000);
+        g.fill(menuX - 1, menuY - 1, menuX + menuW() + 1, menuY + ITEMS.length * ITEM_H + 1, 0xFF000000);
         int hover = menuItemAt(mouseX, mouseY);
         for (int i = 0; i < ITEMS.length; i++) {
             int y = menuY + i * ITEM_H;
-            g.fill(menuX, y, menuX + MENU_W, y + ITEM_H, i == hover ? 0xFF555577 : 0xFF222222);
-            String label = i == 3 && confirmDelete ? "Click again to delete" : ITEMS[i];
-            g.drawString(font, label, menuX + 4, y + 3, i == 3 ? 0xFFFF6666 : 0xFFFFFF);
+            g.fill(menuX, y, menuX + menuW(), y + ITEM_H, i == hover ? 0xFF555577 : 0xFF222222);
+            String label = Lang.t(i == 4 && confirmDelete ? "screenshots.delete_confirm" : "screenshots." + ITEMS[i]);
+            if (i == 3) label = Lang.t(Favourites.has("shot", files[page * perPage + menuCell].getName()) ? "screenshots.favourite_remove" : "screenshots.favourite_add");
+            g.drawString(font, label, menuX + 4, y + 3, i == 4 ? 0xFFFF6666 : 0xFFFFFFFF);
         }
     }
 

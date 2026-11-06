@@ -44,4 +44,22 @@ final class Compat {
     static void blit(GuiGraphics g, ResourceLocation tex, int x, int y, int w, int h, int texW, int texH) {
         g.blit(tex, x, y, w, h, 0f, 0f, texW, texH, texW, texH);
     }
+
+    /** Draws the rw x rh region at (u,v) of the texture scaled to w x h. */
+    static void blitUv(GuiGraphics g, ResourceLocation tex, int x, int y, int w, int h, float u, float v, int rw, int rh, int texW, int texH) {
+        g.blit(tex, x, y, w, h, u, v, rw, rh, texW, texH);
+    }
+
+    static int protocol() {
+        return net.minecraft.SharedConstants.getCurrentVersion().getProtocolVersion();
+    }
+
+    static void tooltip(GuiGraphics g, net.minecraft.network.chat.Component text, int x, int y) {
+        g.renderTooltip(net.minecraft.client.Minecraft.getInstance().font, text, x, y);
+    }
+
+    /** One model vertex (position, ARGB colour, uv, overlay, light, normal). */
+    static void vertex(com.mojang.blaze3d.vertex.VertexConsumer vc, float x, float y, float z, int color, float u, float v, int overlay, int light, float nx, float ny, float nz) {
+        vc.vertex(x, y, z, (color >> 16 & 255) / 255f, (color >> 8 & 255) / 255f, (color & 255) / 255f, (color >>> 24) / 255f, u, v, overlay, light, nx, ny, nz);
+    }
 }

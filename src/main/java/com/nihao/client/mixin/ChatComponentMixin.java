@@ -12,7 +12,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(ChatComponent.class)
 public abstract class ChatComponentMixin {
     // Replaces the "Saved screenshot as ..." chat line with the screenshot animation.
+//#if MC >= V26_1
+    @Inject(method = "addClientSystemMessage(Lnet/minecraft/network/chat/Component;)V", at = @At("HEAD"), cancellable = true)
+//#else
     @Inject(method = "addMessage(Lnet/minecraft/network/chat/Component;)V", at = @At("HEAD"), cancellable = true)
+//#endif
     private void nihao$screenshotSaved(Component message, CallbackInfo ci) {
         if (message.getContents() instanceof TranslatableContents t && "screenshot.success".equals(t.getKey())) {
             ScreenshotFx.trigger();

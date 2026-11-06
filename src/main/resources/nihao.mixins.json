@@ -2,6 +2,6 @@
   "required": true,
   "package": "com.nihao.client.mixin",
   "compatibilityLevel": "JAVA_${java_version}",
-  "client": ["PlayerInfoMixin", "ChatComponentMixin"],
+  "client": ["PlayerInfoMixin", "ChatComponentMixin", "ServerEntryMixin", "ScreenAccessor", "ScreenMixin", "MinecraftMixin", "MainMixin", "GuiMixin", "HudMixin", "ZoomMixin", "ZoomKeyMixin", "ZoomScrollMixin", "KeyMappingAccessor"],
   "injectors": { "defaultRequire": 1 }
 }

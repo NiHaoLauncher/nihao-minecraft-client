@@ -1,0 +1,27 @@
+modLoader = "javafml"
+loaderVersion = "[1,)"
+license = "All Rights Reserved"
+
+[[mods]]
+modId = "nihao"
+version = "${version}"
+displayName = "NiHao Client"
+description = "Ely.by skins, screenshot browser, account sign-in and self-update."
+logoFile = "icon.png"
+
+[[mixins]]
+config = "nihao.mixins.json"
+
+[[dependencies.nihao]]
+modId = "neoforge"
+${neoforge_required}
+versionRange = "${neoforge_range}"
+ordering = "NONE"
+side = "CLIENT"
+
+[[dependencies.nihao]]
+modId = "minecraft"
+${neoforge_required}
+versionRange = "[${mc}]"
+ordering = "NONE"
+side = "CLIENT"

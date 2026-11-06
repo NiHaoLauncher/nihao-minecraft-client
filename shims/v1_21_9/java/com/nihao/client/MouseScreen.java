@@ -16,14 +16,28 @@ abstract class MouseScreen extends Screen {
 
     abstract boolean onScroll(double x, double y, double amount);
 
+    /** The button number as the screens expect it, GLFW's: 0 left, 1 right, 2 middle. */
+    private static int button(MouseButtonEvent e) {
+//#if MC >= V26_3
+        return switch (e.button()) { // 26.x numbers them like SDL: 1 left, 2 middle, 3 right
+            case 1 -> 0;
+            case 2 -> 2;
+            case 3 -> 1;
+            default -> e.button();
+        };
+//#else
+        return e.button();
+//#endif
+    }
+
     @Override
     public boolean mouseClicked(MouseButtonEvent e, boolean doubleClick) {
-        return onClick(e.x(), e.y(), e.button()) || super.mouseClicked(e, doubleClick);
+        return onClick(e.x(), e.y(), button(e)) || super.mouseClicked(e, doubleClick);
     }
 
     @Override
     public boolean mouseDragged(MouseButtonEvent e, double dx, double dy) {
-        return onDrag(e.x(), e.y(), e.button(), dx, dy) || super.mouseDragged(e, dx, dy);
+        return onDrag(e.x(), e.y(), button(e), dx, dy) || super.mouseDragged(e, dx, dy);
     }
 
     @Override
